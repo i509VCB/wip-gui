@@ -1,0 +1,8 @@
+[package]
+name = "gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# TODO: no_std support: https://github.com/LPGhatguy/thunderdome/pull/37
+thunderdome = { version = "0.5.1", default-features = false }
