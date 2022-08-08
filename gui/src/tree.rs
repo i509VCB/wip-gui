@@ -44,25 +44,9 @@ impl<T> Tree<T> {
         }
     }
 
+    // TODO: Iterator which goes up the tree from the last node.
+
     // TODO: Visitor which can mutate or invalidate branches of the tree
-}
-
-pub struct DepthFirst<'a, T> {
-    tree: &'a Tree<T>,
-    next: Option<Index>,
-}
-
-impl<'a, T> Iterator for DepthFirst<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let current = self.next.take()?;
-        let node = self.tree.inner.get(current)?;
-
-        // Get the next node
-        self.next = get_next_node(&self.tree.inner, current);
-        Some(&node.data)
-    }
 }
 
 pub struct Slot<'a, T> {
@@ -85,6 +69,24 @@ impl<'a, T> Slot<'a, T> {
     }
 }
 
+pub struct DepthFirst<'a, T> {
+    tree: &'a Tree<T>,
+    next: Option<Index>,
+}
+
+impl<'a, T> Iterator for DepthFirst<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next.take()?;
+        let node = self.tree.inner.get(current)?;
+
+        // Get the next node
+        self.next = get_next_node(&self.tree.inner, current);
+        Some(&node.data)
+    }
+}
+
 struct Node<T> {
     data: T,
     parent: Option<Index>,
@@ -94,38 +96,24 @@ struct Node<T> {
     last_child: Option<Index>,
 }
 
-fn insert_new_child<T>(arena: &mut Arena<Node<T>>, data: T, parent: Index) -> Index {
-    // Get the previous sibling of the new node if possible
-    let parent_node = arena.get_mut(parent).unwrap();
-    let prev_sibling = parent_node.last_child;
+impl<T> Tree<T> {
+    /// Returns the index of the last node in the tree.
+    fn get_last(&self) -> Option<Index> {
+        self.root.map(|mut next| {
+            loop {
+                let node = self.inner.get(next).unwrap();
 
-    let index = arena.insert(Node {
-        data,
-        parent: Some(parent),
-        prev_sibling,
-        next_sibling: None,
-        first_child: None,
-        last_child: None,
-    });
+                // Get the next last child
+                if let Some(child) = node.last_child {
+                    next = child;
+                    continue;
+                }
 
-    // The parent node has gone out of scope by inserting the new node.
-    let parent_node = arena.get_mut(parent).unwrap();
-
-    // If this is the parent node's first child node, update the first child as well.
-    if parent_node.first_child.is_none() {
-        parent_node.first_child = Some(index);
+                // Reached the last node in the tree.
+                break next;
+            }
+        })
     }
-
-    // Add the new last child
-    parent_node.last_child = Some(index);
-
-    // Update the next sibling of the previous sibling
-    if let Some(prev_sibling) = prev_sibling {
-        let prev_sibling = arena.get_mut(prev_sibling).unwrap();
-        prev_sibling.next_sibling = Some(index);
-    }
-
-    index
 }
 
 fn get_next_node<T>(arena: &Arena<Node<T>>, index: Index) -> Option<Index> {
@@ -174,6 +162,40 @@ fn get_next_node<T>(arena: &Arena<Node<T>>, index: Index) -> Option<Index> {
             // We have reached the end of the tree
             None
         })
+}
+
+fn insert_new_child<T>(arena: &mut Arena<Node<T>>, data: T, parent: Index) -> Index {
+    // Get the previous sibling of the new node if possible
+    let parent_node = arena.get_mut(parent).unwrap();
+    let prev_sibling = parent_node.last_child;
+
+    let index = arena.insert(Node {
+        data,
+        parent: Some(parent),
+        prev_sibling,
+        next_sibling: None,
+        first_child: None,
+        last_child: None,
+    });
+
+    // The parent node has gone out of scope by inserting the new node.
+    let parent_node = arena.get_mut(parent).unwrap();
+
+    // If this is the parent node's first child node, update the first child as well.
+    if parent_node.first_child.is_none() {
+        parent_node.first_child = Some(index);
+    }
+
+    // Add the new last child
+    parent_node.last_child = Some(index);
+
+    // Update the next sibling of the previous sibling
+    if let Some(prev_sibling) = prev_sibling {
+        let prev_sibling = arena.get_mut(prev_sibling).unwrap();
+        prev_sibling.next_sibling = Some(index);
+    }
+
+    index
 }
 
 #[cfg(test)]
