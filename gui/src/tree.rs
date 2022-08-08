@@ -33,64 +33,34 @@ impl<T> Tree<T> {
         }
     }
 
-    pub fn iter(&self) -> Iter<'_, T> {
-        Iter {
+    /// Returns an iterator which visits the tree in depth first order.
+    ///
+    /// Depth first search will try to explore the furthest point of a branch before backtracking to other
+    /// branches.
+    pub fn depth_first(&self) -> DepthFirst<'_, T> {
+        DepthFirst {
             tree: self,
             next: self.root,
-            first: true,
         }
     }
 
     // TODO: Visitor which can mutate or invalidate branches of the tree
 }
 
-pub struct Iter<'a, T> {
+pub struct DepthFirst<'a, T> {
     tree: &'a Tree<T>,
     next: Option<Index>,
-    first: bool,
 }
 
-impl<'a, T> Iterator for Iter<'a, T> {
+impl<'a, T> Iterator for DepthFirst<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.next.take()?;
         let node = self.tree.inner.get(current)?;
 
-        // Get the next sibling
-        if let Some(next_sibling) = node.next_sibling {
-            self.next = Some(next_sibling);
-        } else if let Some(parent) = node.parent {
-            // Otherwise find the next sibling on the parent.
-            if let Some(parent) = self.tree.inner.get(parent) {
-                // Traverse until we find the current node, and then take the next node.
-                if let Some(mut next) = parent.first_child {
-                    loop {
-                        if next == current {
-                            self.next = Some(next);
-                            break;
-                        }
-
-                        // If the node does not match, test the next sibling
-                        if let Some(next_node) = self.tree.inner.get(next) {
-                            if let Some(next_sibling) = next_node.next_sibling {
-                                next = next_sibling;
-                                continue;
-                            }
-                        }
-
-                        // The end of the iterator.
-                        break;
-                    }
-                }
-            }
-        } else if self.first {
-            // FIXME: Iterator never finishes
-            self.next = node.first_child;
-        }
-
-        self.first = false;
-
+        // Get the next node
+        self.next = get_next_node(&self.tree.inner, current);
         Some(&node.data)
     }
 }
@@ -106,7 +76,7 @@ impl<'a, T> Slot<'a, T> {
     where
         'a: 'b,
     {
-        let index = insert_new_child(&mut self.inner, data, self.index);
+        let index = insert_new_child(self.inner, data, self.index);
 
         Slot {
             inner: self.inner,
@@ -158,6 +128,54 @@ fn insert_new_child<T>(arena: &mut Arena<Node<T>>, data: T, parent: Index) -> In
     index
 }
 
+fn get_next_node<T>(arena: &Arena<Node<T>>, index: Index) -> Option<Index> {
+    // Try the child of the node
+    let node = arena.get(index)?;
+
+    node
+        // First child
+        .first_child
+        // Otherwise try the next sibling
+        .or(node.next_sibling)
+        .or_else(|| {
+            // Check if this node has a parent
+            if let Some(mut parent) = node.parent {
+                loop {
+                    let parent_node = arena.get(parent).expect("Parent must exist");
+
+                    // Try the next sibling of the parent
+                    //                grandparent
+                    //               /           \
+                    //         parent ----------> next
+                    //        /
+                    // current
+                    if let Some(next) = parent_node.next_sibling {
+                        return Some(next);
+                    }
+
+                    // grandparent
+                    // ^
+                    // |
+                    // parent
+                    // ^
+                    // |
+                    // current
+                    if let Some(next) = parent_node.parent {
+                        parent = next;
+                        // The next iteration of the loop will try the sibling and next grandparent.
+                        continue;
+                    }
+
+                    // We have reached the end of the tree and therefore no more nodes exist.
+                    break;
+                }
+            }
+
+            // We have reached the end of the tree
+            None
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::Tree;
@@ -170,76 +188,161 @@ mod tests {
     }
 
     #[test]
-    fn two_children() {
+    fn depth_first_branches() {
         let mut tree = Tree::<u32>::new();
+        let mut node = tree.insert(0);
+
+        /*
+            0
+           / \
+          1   4
+         / \
+        2   3
+        */
 
         {
-            let mut node = tree.insert(0);
+            let mut node = node.insert_child(1);
+
             let _ = node.insert_child(2);
             let _ = node.insert_child(3);
-            let _ = node.insert_child(4);
         }
 
-        assert!(tree.root.is_some());
-        assert_eq!(tree.inner.len(), 4);
+        let _ = node.insert_child(4);
 
-        // Get root node
-        let root = tree.inner.get(tree.root.unwrap()).unwrap();
+        assert_eq!(tree.inner.len(), 5);
 
-        // Assert the first child and last child are not None
-        assert!(root.first_child.is_some());
-        assert!(root.last_child.is_some());
+        let mut iter = tree.depth_first();
 
-        // Assert the first and last child are not equal since more than one child node exists.
-        assert_ne!(root.first_child, root.last_child);
+        assert_eq!(iter.next(), Some(&0));
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), Some(&4));
+        assert_eq!(iter.next(), None);
+    }
 
-        // Traverse to the 1st child and ensure relations are correct.
-        let first_child_node = tree.inner.get(root.first_child.unwrap()).unwrap();
-        assert_eq!(first_child_node.data, 2);
+    #[test]
+    fn depth_first_line() {
+        /*
+          0
+          |
+          1
+          |
+          2
+          |
+          3
+          |
+          4
+        */
+        let mut tree = Tree::<u32>::new();
+        let mut node = tree.insert(0);
+        let mut node = node.insert_child(1);
+        let mut node = node.insert_child(2);
+        let mut node = node.insert_child(3);
+        let _ = node.insert_child(4);
 
-        // Parent
-        assert_eq!(first_child_node.parent, tree.root);
-        // First child of a parent will have no previous sibling
-        assert!(first_child_node.prev_sibling.is_none());
-        // But can have a next sibling
-        assert!(first_child_node.next_sibling.is_some());
+        let mut iter = tree.depth_first();
 
-        // 2nd child
-        let second_child_node = tree
-            .inner
-            .get(first_child_node.next_sibling.unwrap())
-            .unwrap();
-        assert_eq!(second_child_node.data, 3);
+        assert_eq!(iter.next(), Some(&0));
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), Some(&4));
+        assert_eq!(iter.next(), None);
+    }
 
-        // Parent
-        assert_eq!(second_child_node.parent, tree.root);
-        // 2nd child's has a previous and next sibling
-        assert!(second_child_node.prev_sibling.is_some());
-        assert!(second_child_node.next_sibling.is_some());
-        // The previous sibling must be the first child
-        assert_eq!(second_child_node.prev_sibling, root.first_child);
+    #[test]
+    fn depth_first_wide_branch() {
+        /*
+              0
+            __|__
+           /  |  \
+          1   6   7
+          |       |
+         / \      8
+         2 4
+         | |
+         3 5
+        */
+        let mut tree = Tree::<u32>::new();
+        let mut node = tree.insert(0);
 
-        // The last child of the root should be the next sibling of the second child
-        assert_eq!(second_child_node.next_sibling, root.last_child);
+        {
+            let mut node = node.insert_child(1);
 
-        // Last child
-        let last_child_node = tree
-            .inner
-            .get(second_child_node.next_sibling.unwrap())
-            .unwrap();
-        assert_eq!(last_child_node.data, 4);
+            {
+                let mut node = node.insert_child(2);
+                let _ = node.insert_child(3);
+            }
 
-        assert_eq!(last_child_node.parent, tree.root);
-        // The last child should have no next sibling
-        assert!(last_child_node.next_sibling.is_none());
-        assert_eq!(last_child_node.prev_sibling, first_child_node.next_sibling);
+            let mut node = node.insert_child(4);
+            let _ = node.insert_child(5);
+        }
 
-        let mut iter = tree.iter();
-        assert_eq!(Some(&0), iter.next());
-        assert_eq!(Some(&2), iter.next());
-        assert_eq!(Some(&3), iter.next());
-        assert_eq!(Some(&4), iter.next());
-        // FIXME: Iterator never ends
-        assert_eq!(None, iter.next());
+        let _ = node.insert_child(6);
+
+        {
+            let mut node = node.insert_child(7);
+            let _ = node.insert_child(8);
+        }
+
+        let mut iter = tree.depth_first();
+
+        assert_eq!(iter.next(), Some(&0));
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), Some(&4));
+        assert_eq!(iter.next(), Some(&5));
+        assert_eq!(iter.next(), Some(&6));
+        assert_eq!(iter.next(), Some(&7));
+        assert_eq!(iter.next(), Some(&8));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn depth_first_deep_and_wide() {
+        /*
+              0
+              |
+              1
+         _____|__
+        /  |  |  \
+        2  4  7   8
+        |  |
+        3  5
+           |
+           6
+        */
+        let mut tree = Tree::<u32>::new();
+        let mut node = tree.insert(0);
+        let mut node = node.insert_child(1);
+
+        {
+            let mut node = node.insert_child(2);
+            let _ = node.insert_child(3);
+        }
+
+        {
+            let mut node = node.insert_child(4);
+            let mut node = node.insert_child(5);
+            let _ = node.insert_child(6);
+        }
+
+        let _ = node.insert_child(7);
+        let _ = node.insert_child(8);
+
+        let mut iter = tree.depth_first();
+
+        assert_eq!(iter.next(), Some(&0));
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), Some(&4));
+        assert_eq!(iter.next(), Some(&5));
+        assert_eq!(iter.next(), Some(&6));
+        assert_eq!(iter.next(), Some(&7));
+        assert_eq!(iter.next(), Some(&8));
+        assert_eq!(iter.next(), None);
     }
 }
