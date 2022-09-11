@@ -1,0 +1,21 @@
+[package]
+name = "renderer_glow"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytemuck = "1.12.1"
+renderer = { path = "../renderer" }
+glow = "0.11.2"
+glam = "0.21.3"
+
+[dev-dependencies]
+raw-window-handle = "0.5.0"
+glutin = { version = "0.30.0-beta.2", default-features = false }
+winit = "0.27.2"
+
+[[example]]
+name = "glutin"
+required-features = [ "glutin/egl", "glutin/wayland" ]

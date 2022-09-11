@@ -5,6 +5,10 @@ pub struct Tree<T> {
     root: Option<Index>,
 }
 
+// Build tree
+// Visit
+// Specify action to rebuild part of tree
+
 impl<T> Tree<T> {
     pub fn new() -> Self {
         Self {
@@ -47,6 +51,11 @@ impl<T> Tree<T> {
     // TODO: Iterator which goes up the tree from the last node.
 
     // TODO: Visitor which can mutate or invalidate branches of the tree
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.root.take();
+    }
 }
 
 pub struct Slot<'a, T> {

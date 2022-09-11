@@ -1,6 +1,8 @@
 use core::marker::PhantomData;
 
-use super::View;
+use crate::scene::{Scene, Node};
+
+use super::{View, Slot, SlotIdentity};
 
 pub struct Memoize<T, V, D>
 where
@@ -27,9 +29,11 @@ where
 {
     type State = MemoizeState<T, V>;
 
-    fn build(&self) -> Self::State {
+    fn build(&self, slot: Slot<'_, Self, T>) -> SlotIdentity<Self::State> {
         let view = (self.f)(&self.data);
-        let state = view.build();
+        let state = view.build(slot);
+
+        scene.build_node(state)
 
         MemoizeState {
             view,
@@ -37,6 +41,17 @@ where
             dirty: false,
         }
     }
+
+    // fn build(&self) -> Self::State {
+    //     let view = (self.f)(&self.data);
+    //     let state = view.build();
+
+    //     MemoizeState {
+    //         view,
+    //         state,
+    //         dirty: false,
+    //     }
+    // }
 }
 
 pub struct MemoizeState<T, V>

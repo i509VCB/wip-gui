@@ -4,9 +4,11 @@ extern crate alloc;
 
 mod tree;
 
+pub mod scene;
 pub mod view;
 
 use alloc::vec::Vec;
+use tree::Tree;
 use view::View;
 
 // Discussion: When do we stop UI?
@@ -81,7 +83,7 @@ use view::View;
 /// own `Context`.
 pub struct Context<Data, Node> {
     /// The view tree.
-    storage: Vec<Node>,
+    view_tree: Tree<Node>,
     /// The data of the context.
     data: Data,
 }
@@ -92,7 +94,7 @@ where
 {
     pub fn new(data: Data) -> Self {
         Self {
-            storage: Vec::new(),
+            view_tree: Tree::new(),
             data,
         }
     }
@@ -111,18 +113,4 @@ where
 /// information.
 pub trait ViewNode<T> {
     fn rebuild(&mut self);
-}
-
-struct Node<T, V: View<T>> {
-    view: V,
-    state: V::State,
-}
-
-impl<T, V> ViewNode<T> for Node<T, V>
-where
-    V: View<T> + Sized,
-{
-    fn rebuild(&mut self) {
-        self.state = self.view.build();
-    }
 }

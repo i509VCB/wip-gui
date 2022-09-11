@@ -1,4 +1,7 @@
 [workspace]
 members = [
-    "gui",
+    "crates/gui",
+    "crates/renderer",
+    "crates/renderer_glow",
+    "crates/testing",
 ]

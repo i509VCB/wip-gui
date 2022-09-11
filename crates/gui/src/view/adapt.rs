@@ -1,3 +1,5 @@
+use crate::scene::{Scene, Node};
+
 use super::View;
 
 pub struct Adapt<T, U, V>
@@ -51,7 +53,10 @@ where
 {
     type State = V::State;
 
-    fn build(&self) -> Self::State {
-        self.view.build()
+    fn build<N>(&self, scene: &mut Scene<'_, N>) -> Node<'_, N>
+    where
+        N: From<Self::State>,
+    {
+        self.view.build(scene)
     }
 }
