@@ -1,7 +1,7 @@
 use glam::Mat4;
 use glow::HasContext;
 
-use crate::{create_shader, ShaderType, create_program};
+use crate::{create_program, create_shader, ShaderType};
 
 pub struct Pipeline {
     pub program: glow::Program,
@@ -10,17 +10,15 @@ pub struct Pipeline {
     pub uniform_matrix: glow::UniformLocation,
     pub uniform_color: glow::UniformLocation,
     pub uniform_size: glow::UniformLocation,
-    // TODO
     pub uniform_radius: glow::UniformLocation,
     pub uniform_thickness: glow::UniformLocation,
     pub uniform_fade: glow::UniformLocation,
 }
 
-// TODO: Reference https://github.com/iced-rs/iced/blob/master/glow/src/shader/compatibility/quad.frag
 const VERTEX_SHADER: &str = include_str!("shader/quad_es2.vert");
 const FRAGMENT_SHADER: &str = include_str!("shader/quad_es2.frag");
 
-// TODO(Instancing): Gles 3.0+ or GL_EXT_instanced_arrays + GL_EXT_draw_instanced. 
+// TODO(Instancing): Gles 3.0+ or GL_EXT_instanced_arrays + GL_EXT_draw_instanced.
 
 impl Pipeline {
     pub unsafe fn new(context: &glow::Context) -> Result<Self, String> {
@@ -33,10 +31,11 @@ impl Pipeline {
         }
 
         let fragment = fragment.unwrap();
-        let program = create_program(context, &[vertex, fragment], &[
-            (0, "position"),
-            (1, "coordinates"),
-        ])?;
+        let program = create_program(
+            context,
+            &[vertex, fragment],
+            &[(0, "position"), (1, "coordinates")],
+        )?;
 
         // Get the attribute location of the position
         let attrib_position = context
@@ -86,7 +85,13 @@ impl Pipeline {
     }
 
     /// SAFETY: The pipeline must be bound.
-    pub unsafe fn draw(&self, context: &glow::Context, position: (u32, u32), size: (u32, u32), color: [f32; 4]) {
+    pub unsafe fn draw(
+        &self,
+        context: &glow::Context,
+        position: (u32, u32),
+        size: (u32, u32),
+        color: [f32; 4],
+    ) {
         let x = position.0 as f32;
         let y = position.1 as f32;
 
@@ -94,26 +99,48 @@ impl Pipeline {
         let height = size.1 as f32;
 
         let verts: [f32; 30] = [
-            x, y, 0.0, -1.0, -1.0, // 1
-            width + x, y, 0.0, -1.0, 1.0, // 2
-            width + x, height + y, 0.0, 1.0, 1.0, // 3
+            x,
+            y,
+            0.0,
+            -1.0,
+            -1.0, // 1
+            width + x,
+            y,
+            0.0,
+            -1.0,
+            1.0, // 2
+            width + x,
+            height + y,
+            0.0,
+            1.0,
+            1.0, // 3
             //
-            x, y, 0.0, -1.0, -1.0,
-            width + x, height + y, 0.0, 1.0, 1.0,
-            x, height + y, 0.0, 1.0, -1.0,
+            x,
+            y,
+            0.0,
+            -1.0,
+            -1.0,
+            width + x,
+            height + y,
+            0.0,
+            1.0,
+            1.0,
+            x,
+            height + y,
+            0.0,
+            1.0,
+            -1.0,
         ];
 
         context.uniform_4_f32_slice(Some(&self.uniform_color), &color);
-        {
-            let ratio = if width > height {
-                [1.0, width / height]
-            } else if height > width {
-                [height / width, 1.0]
-            } else {
-                [1.0, 1.0]
-            };
-            context.uniform_2_f32_slice(Some(&self.uniform_size), &ratio);
-        }
+        let ratio = if width > height {
+            [1.0, width / height]
+        } else if height > width {
+            [height / width, 1.0]
+        } else {
+            [1.0, 1.0]
+        };
+        context.uniform_2_f32_slice(Some(&self.uniform_size), &ratio);
 
         // TODO: Parameters to adjust these uniforms
         context.uniform_1_f32(Some(&self.uniform_radius), 0.2);
@@ -160,25 +187,14 @@ impl crate::Pipeline for Pipeline {
         // Set the color to a default value
         context.uniform_4_f32_slice(Some(&self.uniform_color), &[1.0, 1.0, 1.0, 1.0]);
 
-        let matrix = Mat4::orthographic_rh(
-            0.0,
-            width as f32,
-            0.0,
-            height as f32,
-            -1.0,
-            1.0,
-        );
+        let matrix = Mat4::orthographic_rh(0.0, width as f32, 0.0, height as f32, -1.0, 1.0);
 
         // Flip to compensate for the OpenGL coordinate system
         let matrix = Mat4::from_rotation_x(std::f32::consts::PI) * matrix;
         let array = matrix.to_cols_array();
 
         // Set the size of the viewport
-        context.uniform_matrix_4_f32_slice(
-            Some(&self.uniform_matrix),
-            false,
-            &array
-        );
+        context.uniform_matrix_4_f32_slice(Some(&self.uniform_matrix), false, &array);
     }
 
     unsafe fn unbind(&self, context: &glow::Context) {

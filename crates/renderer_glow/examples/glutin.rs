@@ -14,9 +14,10 @@ use raw_window_handle::{
 
 use renderer_glow::GlowRenderer;
 use winit::{
+    dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder}, dpi::LogicalSize,
+    window::{Window, WindowBuilder},
 };
 
 fn main() {
@@ -24,7 +25,11 @@ fn main() {
 
     let raw_display = event_loop.raw_display_handle();
 
-    let window = WindowBuilder::new().with_decorations(true).with_inner_size(LogicalSize::new(1000, 1000)).build(&event_loop).unwrap();
+    let window = WindowBuilder::new()
+        .with_decorations(true)
+        .with_inner_size(LogicalSize::new(1000, 1000))
+        .build(&event_loop)
+        .unwrap();
     let raw_window_handle = window.raw_window_handle();
 
     let gl_display = create_display(raw_display, raw_window_handle);

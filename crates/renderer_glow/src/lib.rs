@@ -6,6 +6,7 @@ use std::{
 
 use glow::HasContext;
 
+mod image;
 mod quad;
 mod renderer;
 mod triangle;
@@ -25,6 +26,7 @@ pub struct GlowRenderer {
     /// Allocate the glow context on the heap to reduce the size of the renderer when moved in memory.
     context: Rc<glow::Context>,
     // Pipelines
+    image: image::Pipeline,
     triangle: triangle::Pipeline,
     quad: quad::Pipeline,
 }
@@ -48,11 +50,14 @@ impl GlowRenderer {
             f(&str)
         });
 
-        let triangle = triangle::Pipeline::new(&context).expect("Failed to create triangle pipeline");
+        let image = image::Pipeline::new(&context).expect("Failed to create image pipeline");
+        let triangle =
+            triangle::Pipeline::new(&context).expect("Failed to create triangle pipeline");
         let quad = quad::Pipeline::new(&context).expect("Failed to create quad pipeline");
 
         Self {
             context: Rc::new(context),
+            image,
             triangle,
             quad,
         }
@@ -116,64 +121,32 @@ impl GlowRenderer {
     pub fn temp_draw(&mut self, width: u32, height: u32) {
         unsafe {
             self.triangle.bind(&self.context, width, height);
-            // self.triangle.draw(
-            //     &self.context,
-            //     &[
-            //         100.0, 100.0, 0.0,
-            //         500.0, 100.0, 0.0,
-            //         500.0, 500.0, 0.0,
-            //         //
-            //         100.0, 100.0, 0.0,
-            //         500.0, 500.0, 0.0,
-            //         100.0, 500.0, 0.0,
-            //     ],
-            //     [0.0, 0.0, 0.0, 1.0],
-            // );
+            self.triangle.draw(
+                &self.context,
+                &[100.0, 100.0, 0.0, 800.0, 800.0, 0.0, 100.0, 800.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            );
             self.triangle.unbind(&self.context);
         }
 
         // Quad
         unsafe {
             self.quad.bind(&self.context, width, height);
-            self.quad.draw(
-                &self.context,
-                (100, 100),
-                (400, 400),
-                [0.3, 0.2, 0.9, 1.0],
-            );
+            self.quad
+                .draw(&self.context, (100, 100), (400, 400), [0.3, 0.2, 0.9, 1.0]);
 
-            self.quad.draw(
-                &self.context,
-                (500, 400),
-                (400, 100),
-                [0.2, 0.2, 0.2, 1.0],
-            );
+            self.quad
+                .draw(&self.context, (500, 400), (400, 100), [0.2, 0.2, 0.2, 1.0]);
 
-            self.quad.draw(
-                &self.context,
-                (500, 600),
-                (100, 100),
-                [0.7, 0.2, 0.9, 1.0],
-            );
-            self.quad.draw(
-                &self.context,
-                (600, 600),
-                (100, 100),
-                [0.7, 0.2, 0.9, 1.0],
-            );
+            self.quad
+                .draw(&self.context, (500, 600), (100, 100), [0.7, 0.2, 0.9, 1.0]);
+            self.quad
+                .draw(&self.context, (600, 600), (100, 100), [0.7, 0.2, 0.9, 1.0]);
 
-            self.quad.draw(
-                &self.context,
-                (500, 500),
-                (200, 100),
-                [0.7, 0.2, 0.1, 1.0],
-            );
-            self.quad.draw(
-                &self.context,
-                (700, 500),
-                (100, 200),
-                [0.7, 0.1, 0.6, 1.0],
-            );
+            self.quad
+                .draw(&self.context, (500, 500), (200, 100), [0.7, 0.2, 0.1, 1.0]);
+            self.quad
+                .draw(&self.context, (700, 500), (100, 200), [0.7, 0.1, 0.6, 1.0]);
             self.quad.unbind(&self.context);
         }
 
@@ -189,10 +162,23 @@ impl GlowRenderer {
             }
         }
     }
+
+    pub fn create_encoder(&mut self) -> Result<GlowEncoder<'_>, Error> {
+        let encoder = GlowEncoder { renderer: self };
+
+        Ok(encoder)
+    }
 }
 
-pub struct GlowCommandRecorder {
-    context: Rc<glow::Context>,
+#[must_use = "Dropping an encoder without submitting it does nothing"]
+pub struct GlowEncoder<'a> {
+    renderer: &'a GlowRenderer,
+}
+
+impl<'a> GlowEncoder<'a> {
+    pub fn submit(self) -> Result<(), Error> {
+        todo!()
+    }
 }
 
 pub struct GlowImage {
@@ -213,8 +199,6 @@ impl GlowImage {
         self.is_external
     }
 }
-
-pub struct GlowRenderContext;
 
 #[repr(u32)]
 enum ShaderType {

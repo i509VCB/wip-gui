@@ -8,7 +8,7 @@ pub mod scene;
 pub mod view;
 
 use alloc::vec::Vec;
-use tree::Tree;
+use tree::RetainedTree;
 use view::View;
 
 // Discussion: When do we stop UI?
@@ -83,7 +83,7 @@ use view::View;
 /// own `Context`.
 pub struct Context<Data, Node> {
     /// The view tree.
-    view_tree: Tree<Node>,
+    view_tree: RetainedTree<Node>,
     /// The data of the context.
     data: Data,
 }
@@ -94,7 +94,7 @@ where
 {
     pub fn new(data: Data) -> Self {
         Self {
-            view_tree: Tree::new(),
+            view_tree: RetainedTree::new(),
             data,
         }
     }

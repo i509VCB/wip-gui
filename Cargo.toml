@@ -1,7 +1,9 @@
 [workspace]
+resolver = "2"
 members = [
     "crates/gui",
     "crates/renderer",
     "crates/renderer_glow",
-    "crates/testing",
+    "crates/text",
+    "crates/widgets",
 ]

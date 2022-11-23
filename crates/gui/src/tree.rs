@@ -1,85 +1,117 @@
+use core::ops::Deref;
+
 use thunderdome::{Arena, Index};
 
-pub struct Tree<T> {
-    inner: Arena<Node<T>>,
-    root: Option<Index>,
+/// A tree with manages a retained state of `T` for each element.
+pub struct RetainedTree<T> {
+    inner: Arena<NodeInner<T>>,
+    root: Index,
 }
 
 // Build tree
 // Visit
 // Specify action to rebuild part of tree
 
-impl<T> Tree<T> {
-    pub fn new() -> Self {
-        Self {
-            inner: Arena::new(),
-            root: None,
-        }
-    }
+/// Describes what the visitor should do after visiting this node:
+pub enum VisitAction {
+    /// Continue on to the next node.
+    Continue,
 
-    pub fn insert(&mut self, data: T) -> Slot<'_, T> {
-        assert!(self.root.is_none(), "Root node already created");
+    /// Prune this node.
+    Prune,
+}
 
-        let index = self.inner.insert(Node {
-            data,
+impl<T> RetainedTree<T> {
+    pub fn new<Context, Init, Visit>(context: &Context, init: Init, visit: Visit) -> Self
+    where
+        Init: FnOnce(&Context) -> T,
+        Visit: Fn(&Context, Node<'_, T>) -> VisitAction,
+    {
+        let mut inner = Arena::new();
+        let root = init(context);
+
+        let node = NodeInner {
+            data: root,
             parent: None,
             prev_sibling: None,
             next_sibling: None,
             first_child: None,
             last_child: None,
-        });
+        };
 
-        self.root = Some(index);
+        let root = inner.insert(node);
 
-        Slot {
-            inner: &mut self.inner,
-            index,
-        }
+        let mut tree = Self { inner, root };
+
+        tree.visit(context, visit);
+        tree
     }
 
-    /// Returns an iterator which visits the tree in depth first order.
-    ///
-    /// Depth first search will try to explore the furthest point of a branch before backtracking to other
-    /// branches.
-    pub fn depth_first(&self) -> DepthFirst<'_, T> {
-        DepthFirst {
-            tree: self,
-            next: self.root,
-        }
+    pub fn visit<Context, Visit>(&mut self, context: &Context, visit: Visit)
+    where
+        Visit: Fn(&Context, Node<'_, T>) -> VisitAction,
+    {
     }
 
-    // TODO: Iterator which goes up the tree from the last node.
-
-    // TODO: Visitor which can mutate or invalidate branches of the tree
-
-    pub fn clear(&mut self) {
-        self.inner.clear();
-        self.root.take();
-    }
+    // TODO: Pruning during iteration and generation of tree components.
+    //
+    // The idea would be that the parent can generate it's children:
+    //
+    // Graph node, used to insert elements into the tree.
+    //                ||
+    //                ||
+    //                \/
+    //    Fn(&T, &C, Node)   ->   /* Children */
+    //        ^   ^                      ^
+    //        |    \                     |
+    //        |     \                    |
+    //      parent   context          children
+    //
+    // `Children` refers to the generated child nodes.
+    //
+    // 1. A parent has state to generate children.
+    // 2. By virtue of composition, the children also have state to generate their own children.
+    //
+    // Issues:
+    // - Returning a RetainedTree is not ideal for each parent and it's children recursively.
+    //   - SOLUTION: When pruned, the node passed when creating children will add the branches to the tree.
+    // - A menu would require rebuilding every child
+    //   - SOLUTION: Offscreen branches. Offscreen branches are a set of nodes and children in the tree.
+    //     However these are not considered to be part of the "visible" hierarchy.
+    // - Async?
+    //   - UNDECIDED: Invalidate a node on completion of a Future?
 }
 
-pub struct Slot<'a, T> {
-    inner: &'a mut Arena<Node<T>>,
+pub struct Node<'a, T> {
+    inner: &'a mut Arena<NodeInner<T>>,
     index: Index,
 }
 
-impl<'a, T> Slot<'a, T> {
+impl<'a, T> Node<'a, T> {
     #[must_use]
-    pub fn insert_child<'b>(&'b mut self, data: T) -> Slot<'b, T>
+    pub fn push_child<'b>(&'b mut self, data: T) -> Node<'b, T>
     where
         'a: 'b,
     {
         let index = insert_new_child(self.inner, data, self.index);
 
-        Slot {
+        Node {
             inner: self.inner,
             index,
         }
     }
 }
 
+impl<T> Deref for Node<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner.get(self.index).unwrap().data
+    }
+}
+
 pub struct DepthFirst<'a, T> {
-    tree: &'a Tree<T>,
+    tree: &'a RetainedTree<T>,
     next: Option<Index>,
 }
 
@@ -96,7 +128,7 @@ impl<'a, T> Iterator for DepthFirst<'a, T> {
     }
 }
 
-struct Node<T> {
+struct NodeInner<T> {
     data: T,
     parent: Option<Index>,
     prev_sibling: Option<Index>,
@@ -105,7 +137,7 @@ struct Node<T> {
     last_child: Option<Index>,
 }
 
-impl<T> Tree<T> {
+impl<T> RetainedTree<T> {
     /// Returns the index of the last node in the tree.
     fn get_last(&self) -> Option<Index> {
         self.root.map(|mut next| {
@@ -125,7 +157,7 @@ impl<T> Tree<T> {
     }
 }
 
-fn get_next_node<T>(arena: &Arena<Node<T>>, index: Index) -> Option<Index> {
+fn get_next_node<T>(arena: &Arena<NodeInner<T>>, index: Index) -> Option<Index> {
     // Try the child of the node
     let node = arena.get(index)?;
 
@@ -173,12 +205,12 @@ fn get_next_node<T>(arena: &Arena<Node<T>>, index: Index) -> Option<Index> {
         })
 }
 
-fn insert_new_child<T>(arena: &mut Arena<Node<T>>, data: T, parent: Index) -> Index {
+fn insert_new_child<T>(arena: &mut Arena<NodeInner<T>>, data: T, parent: Index) -> Index {
     // Get the previous sibling of the new node if possible
     let parent_node = arena.get_mut(parent).unwrap();
     let prev_sibling = parent_node.last_child;
 
-    let index = arena.insert(Node {
+    let index = arena.insert(NodeInner {
         data,
         parent: Some(parent),
         prev_sibling,
@@ -205,175 +237,4 @@ fn insert_new_child<T>(arena: &mut Arena<Node<T>>, data: T, parent: Index) -> In
     }
 
     index
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Tree;
-
-    #[test]
-    fn test_insert() {
-        let mut tree = Tree::<u32>::new();
-        let _ = tree.insert(0);
-        assert!(tree.root.is_some());
-    }
-
-    #[test]
-    fn depth_first_branches() {
-        let mut tree = Tree::<u32>::new();
-        let mut node = tree.insert(0);
-
-        /*
-            0
-           / \
-          1   4
-         / \
-        2   3
-        */
-
-        {
-            let mut node = node.insert_child(1);
-
-            let _ = node.insert_child(2);
-            let _ = node.insert_child(3);
-        }
-
-        let _ = node.insert_child(4);
-
-        assert_eq!(tree.inner.len(), 5);
-
-        let mut iter = tree.depth_first();
-
-        assert_eq!(iter.next(), Some(&0));
-        assert_eq!(iter.next(), Some(&1));
-        assert_eq!(iter.next(), Some(&2));
-        assert_eq!(iter.next(), Some(&3));
-        assert_eq!(iter.next(), Some(&4));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn depth_first_line() {
-        /*
-          0
-          |
-          1
-          |
-          2
-          |
-          3
-          |
-          4
-        */
-        let mut tree = Tree::<u32>::new();
-        let mut node = tree.insert(0);
-        let mut node = node.insert_child(1);
-        let mut node = node.insert_child(2);
-        let mut node = node.insert_child(3);
-        let _ = node.insert_child(4);
-
-        let mut iter = tree.depth_first();
-
-        assert_eq!(iter.next(), Some(&0));
-        assert_eq!(iter.next(), Some(&1));
-        assert_eq!(iter.next(), Some(&2));
-        assert_eq!(iter.next(), Some(&3));
-        assert_eq!(iter.next(), Some(&4));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn depth_first_wide_branch() {
-        /*
-              0
-            __|__
-           /  |  \
-          1   6   7
-          |       |
-         / \      8
-         2 4
-         | |
-         3 5
-        */
-        let mut tree = Tree::<u32>::new();
-        let mut node = tree.insert(0);
-
-        {
-            let mut node = node.insert_child(1);
-
-            {
-                let mut node = node.insert_child(2);
-                let _ = node.insert_child(3);
-            }
-
-            let mut node = node.insert_child(4);
-            let _ = node.insert_child(5);
-        }
-
-        let _ = node.insert_child(6);
-
-        {
-            let mut node = node.insert_child(7);
-            let _ = node.insert_child(8);
-        }
-
-        let mut iter = tree.depth_first();
-
-        assert_eq!(iter.next(), Some(&0));
-        assert_eq!(iter.next(), Some(&1));
-        assert_eq!(iter.next(), Some(&2));
-        assert_eq!(iter.next(), Some(&3));
-        assert_eq!(iter.next(), Some(&4));
-        assert_eq!(iter.next(), Some(&5));
-        assert_eq!(iter.next(), Some(&6));
-        assert_eq!(iter.next(), Some(&7));
-        assert_eq!(iter.next(), Some(&8));
-        assert_eq!(iter.next(), None);
-    }
-
-    #[test]
-    fn depth_first_deep_and_wide() {
-        /*
-              0
-              |
-              1
-         _____|__
-        /  |  |  \
-        2  4  7   8
-        |  |
-        3  5
-           |
-           6
-        */
-        let mut tree = Tree::<u32>::new();
-        let mut node = tree.insert(0);
-        let mut node = node.insert_child(1);
-
-        {
-            let mut node = node.insert_child(2);
-            let _ = node.insert_child(3);
-        }
-
-        {
-            let mut node = node.insert_child(4);
-            let mut node = node.insert_child(5);
-            let _ = node.insert_child(6);
-        }
-
-        let _ = node.insert_child(7);
-        let _ = node.insert_child(8);
-
-        let mut iter = tree.depth_first();
-
-        assert_eq!(iter.next(), Some(&0));
-        assert_eq!(iter.next(), Some(&1));
-        assert_eq!(iter.next(), Some(&2));
-        assert_eq!(iter.next(), Some(&3));
-        assert_eq!(iter.next(), Some(&4));
-        assert_eq!(iter.next(), Some(&5));
-        assert_eq!(iter.next(), Some(&6));
-        assert_eq!(iter.next(), Some(&7));
-        assert_eq!(iter.next(), Some(&8));
-        assert_eq!(iter.next(), None);
-    }
 }

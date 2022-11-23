@@ -2,6 +2,7 @@
 
 precision highp float;
 
+// TODO: Replace with vertex attribute to allow for gradients
 uniform vec4 color;
 
 // The size of the shape as a ratio.
